@@ -1,8 +1,9 @@
 import { Component, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { HttpClient, HttpHeaders } from '@angular/common/http';
-import { Router } from '@angular/router';
+import { AuthService } from '../services/auth.service';
+import { ApiService } from '../services/api.service';
+import { JobOffer, JobMetrics } from '../models/models';
 
 @Component({
   selector: 'app-rh-dashboard',
@@ -120,7 +121,7 @@ import { Router } from '@angular/router';
                   <div class="empty-list" *ngIf="selectedJobMetrics()?.matches?.length === 0">
                     Aucun match pour l'instant. Swipez les candidats dans l'application !
                   </div>
-                  <table class="premium-table" *ngIf="selectedJobMetrics()?.matches?.length > 0">
+                  <table class="premium-table" *ngIf="(selectedJobMetrics()?.matches?.length ?? 0) > 0">
                     <thead>
                       <tr>
                         <th>Candidat</th>
@@ -156,7 +157,7 @@ import { Router } from '@angular/router';
                   <div class="empty-list" *ngIf="selectedJobMetrics()?.likes?.length === 0">
                     Aucun candidat n'a encore aimé cette offre.
                   </div>
-                  <table class="premium-table" *ngIf="selectedJobMetrics()?.likes?.length > 0">
+                  <table class="premium-table" *ngIf="(selectedJobMetrics()?.likes?.length ?? 0) > 0">
                     <thead>
                       <tr>
                         <th>Candidat</th>
@@ -184,7 +185,7 @@ import { Router } from '@angular/router';
                   <div class="empty-list" *ngIf="selectedJobMetrics()?.passes?.length === 0">
                     Aucun candidat n'a passé son tour sur cette offre.
                   </div>
-                  <table class="premium-table" *ngIf="selectedJobMetrics()?.passes?.length > 0">
+                  <table class="premium-table" *ngIf="(selectedJobMetrics()?.passes?.length ?? 0) > 0">
                     <thead>
                       <tr>
                         <th>Candidat</th>
@@ -595,11 +596,6 @@ import { Router } from '@angular/router';
     
     .check-group input {
       width: 16px;
-      height: 16px;
-    }
-    
-    .modal-footer {
-      display: flex;
       justify-content: flex-end;
       gap: 12px;
       margin-top: 24px;
@@ -610,9 +606,9 @@ export class RhDashboardComponent implements OnInit {
   companyName = signal('');
   recruiterName = signal('');
   
-  jobs = signal<any[]>([]);
+  jobs = signal<JobOffer[]>([]);
   selectedJobId = signal<string | null>(null);
-  selectedJobMetrics = signal<any | null>(null);
+  selectedJobMetrics = signal<JobMetrics | null>(null);
   activeTab = signal<string>('matches');
 
   // Modal form bindings
@@ -627,34 +623,21 @@ export class RhDashboardComponent implements OnInit {
   };
 
   constructor(
-    private http: HttpClient,
-    private router: Router
+    private apiService: ApiService,
+    private authService: AuthService,
   ) {}
 
   ngOnInit() {
-    const token = localStorage.getItem('access_token');
-    const user = JSON.parse(localStorage.getItem('user') || '{}');
-
-    if (!token || user.mode !== 'rh' || !user.is_approved) {
-      this.router.navigate(['/login']);
-      return;
+    const user = this.authService.getUser();
+    if (user) {
+      this.companyName.set(user.company_name || '');
+      this.recruiterName.set(user.name);
     }
-
-    this.companyName.set(user.company_name);
-    this.recruiterName.set(user.name);
-
     this.loadJobs();
   }
 
-  getHeaders() {
-    const token = localStorage.getItem('access_token');
-    return new HttpHeaders().set('Authorization', `Bearer ${token}`);
-  }
-
   loadJobs() {
-    this.http.get<any>('http://localhost:3000/v1/rh/jobs', {
-      headers: this.getHeaders()
-    }).subscribe({
+    this.apiService.getRhJobs().subscribe({
       next: (res) => {
         this.jobs.set(res.jobs);
         if (res.jobs.length > 0 && !this.selectedJobId()) {
@@ -669,9 +652,7 @@ export class RhDashboardComponent implements OnInit {
 
   selectJob(jobId: string) {
     this.selectedJobId.set(jobId);
-    this.http.get<any>(`http://localhost:3000/v1/rh/jobs/${jobId}/metrics`, {
-      headers: this.getHeaders()
-    }).subscribe({
+    this.apiService.getJobMetrics(jobId).subscribe({
       next: (res) => {
         this.selectedJobMetrics.set(res);
       },
@@ -714,9 +695,7 @@ export class RhDashboardComponent implements OnInit {
       tags: tags
     };
 
-    this.http.post<any>('http://localhost:3000/v1/jobs', jobPayload, {
-      headers: this.getHeaders()
-    }).subscribe({
+    this.apiService.createJob(jobPayload).subscribe({
       next: (res) => {
         this.closePublishModal();
         this.loadJobs();
@@ -725,13 +704,12 @@ export class RhDashboardComponent implements OnInit {
         }
       },
       error: (err) => {
-        alert('Erreur lors de la publication de l’offre: ' + (err.error?.message || err.message));
+        alert('Erreur lors de la publication: ' + (err.error?.message || err.message));
       }
     });
   }
 
   logout() {
-    localStorage.clear();
-    this.router.navigate(['/login']);
+    this.authService.logout();
   }
 }

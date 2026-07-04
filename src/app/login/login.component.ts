@@ -1,8 +1,9 @@
 import { Component, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { HttpClient } from '@angular/common/http';
 import { Router } from '@angular/router';
+import { AuthService } from '../services/auth.service';
+import { ApiService } from '../services/api.service';
 
 @Component({
   selector: 'app-login',
@@ -171,8 +172,9 @@ export class LoginComponent {
   pendingMessage = signal<string | null>(null);
 
   constructor(
-    private http: HttpClient,
-    private router: Router
+    private router: Router,
+    private authService: AuthService,
+    private apiService: ApiService,
   ) {}
 
   onLogin() {
@@ -183,32 +185,29 @@ export class LoginComponent {
 
     this.isLoading.set(true);
     
-    this.http.post<any>('http://localhost:3000/v1/auth/login', {
-      email: this.email,
-      password: this.password
-    }).subscribe({
+    this.apiService.login(this.email, this.password).subscribe({
       next: (res) => {
         this.isLoading.set(false);
         const user = res.user;
         
-        // Save token to localStorage
-        localStorage.setItem('access_token', res.access_token);
-        localStorage.setItem('user', JSON.stringify(user));
+        // Save session via AuthService
+        this.authService.saveSession(res);
 
-        if (this.email === 'admin@talentswipe.com') {
+        // Route based on role field (not hardcoded email)
+        if (user.role === 'admin') {
           this.router.navigate(['/admin']);
           return;
         }
 
         if (user.mode !== 'rh') {
-          this.errorMessage.set('Ce tableau de bord est réservé aux recruteurs. Veuillez utiliser l’application mobile.');
-          localStorage.clear();
+          this.errorMessage.set('Ce tableau de bord est réservé aux recruteurs. Veuillez utiliser l\'application mobile.');
+          this.authService.logout();
           return;
         }
 
         if (!user.is_approved) {
           this.pendingMessage.set('Votre inscription a été reçue ! En attente de validation par un administrateur.');
-          localStorage.clear();
+          this.authService.logout();
           return;
         }
 

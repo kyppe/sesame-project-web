@@ -1,8 +1,9 @@
 import { Component, OnInit, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { HttpClient, HttpHeaders } from '@angular/common/http';
-import { Router } from '@angular/router';
+import { AuthService } from '../services/auth.service';
+import { ApiService } from '../services/api.service';
+import { AdminUser } from '../models/models';
 
 @Component({
   selector: 'app-admin-dashboard',
@@ -444,8 +445,8 @@ import { Router } from '@angular/router';
   `]
 })
 export class AdminDashboardComponent implements OnInit {
-  users = signal<any[]>([]);
-  filteredUsers = signal<any[]>([]);
+  users = signal<AdminUser[]>([]);
+  filteredUsers = signal<AdminUser[]>([]);
   
   isLoading = signal(true);
   selectedFilter = signal<string>('all');
@@ -457,32 +458,17 @@ export class AdminDashboardComponent implements OnInit {
   rhCount = signal(0);
 
   constructor(
-    private http: HttpClient,
-    private router: Router
+    private apiService: ApiService,
+    private authService: AuthService,
   ) {}
 
   ngOnInit() {
-    const token = localStorage.getItem('access_token');
-    const user = JSON.parse(localStorage.getItem('user') || '{}');
-
-    if (!token || user.email !== 'admin@talentswipe.com') {
-      this.router.navigate(['/login']);
-      return;
-    }
-
     this.loadUsers();
-  }
-
-  getHeaders() {
-    const token = localStorage.getItem('access_token');
-    return new HttpHeaders().set('Authorization', `Bearer ${token}`);
   }
 
   loadUsers() {
     this.isLoading.set(true);
-    this.http.get<any>('http://localhost:3000/v1/admin/users', {
-      headers: this.getHeaders()
-    }).subscribe({
+    this.apiService.getAdminUsers().subscribe({
       next: (res) => {
         this.isLoading.set(false);
         this.users.set(res.users);
@@ -496,11 +482,8 @@ export class AdminDashboardComponent implements OnInit {
   }
 
   approveRecruiter(userId: string) {
-    this.http.patch<any>(`http://localhost:3000/v1/admin/users/${userId}/approve`, {}, {
-      headers: this.getHeaders()
-    }).subscribe({
+    this.apiService.approveRecruiter(userId).subscribe({
       next: () => {
-        // Update user state locally
         this.users.update(list => list.map(u => u.id === userId ? { ...u, is_approved: true } : u));
         this.applyFilterAndSearch();
       },
@@ -524,19 +507,16 @@ export class AdminDashboardComponent implements OnInit {
     const query = this.searchQuery.toLowerCase().trim();
     const mode = this.selectedFilter();
 
-    // Calculate overall statistics
     this.totalCount.set(allUsers.length);
     this.candidateCount.set(allUsers.filter(u => u.mode === 'candidat').length);
     this.rhCount.set(allUsers.filter(u => u.mode === 'rh').length);
 
     let filtered = allUsers;
 
-    // Apply Tab Filter
     if (mode !== 'all') {
       filtered = filtered.filter(u => u.mode === mode);
     }
 
-    // Apply Search
     if (query.length > 0) {
       filtered = filtered.filter(u => 
         (u.name && u.name.toLowerCase().includes(query)) ||
@@ -551,7 +531,6 @@ export class AdminDashboardComponent implements OnInit {
   }
 
   logout() {
-    localStorage.clear();
-    this.router.navigate(['/login']);
+    this.authService.logout();
   }
 }
